@@ -5,7 +5,7 @@ import logging
 
 from .config import settings
 from .models.database import create_tables
-from .api.routes import auth, tasks, goals, calendar, documents, agent
+from .api.routes import auth, tasks, goals, calendar, documents, agent, habits
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +35,7 @@ app.include_router(goals.router, prefix=API_PREFIX)
 app.include_router(calendar.router, prefix=API_PREFIX)
 app.include_router(documents.router, prefix=API_PREFIX)
 app.include_router(agent.router, prefix=API_PREFIX)
+app.include_router(habits.router, prefix=API_PREFIX)
 
 
 @app.on_event("startup")

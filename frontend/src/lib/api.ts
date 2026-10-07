@@ -197,3 +197,41 @@ export interface DashboardStats {
   focus_minutes: number;
   active_goals: number;
 }
+
+// ─── Habits ──────────────────────────────────────────────────────────────────
+
+export interface HabitLog {
+  id: string;
+  habit_id: string;
+  date: string;
+  completed: boolean;
+  note?: string;
+  created_at: string;
+}
+
+export interface Habit {
+  id: string;
+  user_id: string;
+  title: string;
+  description?: string;
+  icon: string;
+  color: string;
+  frequency: string;
+  target_days: number;
+  is_active: boolean;
+  created_at: string;
+  streak: number;
+  total_completions: number;
+  logs: HabitLog[];
+}
+
+export const habitsApi = {
+  getAll: () => api.get<Habit[]>('/habits'),
+  create: (data: Partial<Habit>) => api.post<Habit>('/habits', data),
+  update: (id: string, data: Partial<Habit>) => api.patch<Habit>(`/habits/${id}`, data),
+  delete: (id: string) => api.delete(`/habits/${id}`),
+  log: (habitId: string, data: { date: string; completed: boolean; note?: string }) =>
+    api.post<HabitLog>(`/habits/${habitId}/log`, data),
+  getHeatmap: (days?: number) => api.get<{ heatmap: Record<string, number> }>('/habits/heatmap/data', { params: { days } }),
+};
+

@@ -33,5 +33,8 @@ async def get_db():
 
 
 async def create_tables():
+    # Import all models so metadata is populated before create_all
+    from . import models  # noqa: F401
+    from . import habits  # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

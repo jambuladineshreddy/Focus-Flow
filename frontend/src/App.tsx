@@ -9,6 +9,9 @@ import GoalsPage from './pages/GoalsPage';
 import CalendarPage from './pages/CalendarPage';
 import KnowledgePage from './pages/KnowledgePage';
 import SettingsPage from './pages/SettingsPage';
+import HabitsPage from './pages/HabitsPage';
+import HeatmapPage from './pages/HeatmapPage';
+import PomodoroPage from './pages/PomodoroPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -40,6 +43,9 @@ export default function App() {
         <Route path="calendar" element={<CalendarPage />} />
         <Route path="knowledge" element={<KnowledgePage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="habits" element={<HabitsPage />} />
+        <Route path="heatmap" element={<HeatmapPage />} />
+        <Route path="pomodoro" element={<PomodoroPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
