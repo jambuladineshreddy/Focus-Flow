@@ -99,6 +99,17 @@ export const dashboardApi = {
   get: () => api.get('/dashboard'),
 };
 
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+export const notificationsApi = {
+  getStatus: () => api.get<{ gmail_configured: boolean; gmail_user: string | null }>('/notifications/status'),
+  sendTest: (email: string) => api.post('/notifications/test', { email }),
+  sendDailyDigest: (email: string) => api.post('/notifications/daily-digest', { email }),
+  sendTaskReminder: (email: string, task_id: string) =>
+    api.post('/notifications/remind-task', { email, task_id }),
+};
+
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface User {

@@ -5,8 +5,10 @@ from .calendar import router as calendar_router
 from .documents import router as documents_router
 from .agent import router as agent_router
 from .habits import router as habits_router
+from .notifications import router as notifications_router
 
 __all__ = [
     "auth_router", "tasks_router", "goals_router",
-    "calendar_router", "documents_router", "agent_router", "habits_router"
+    "calendar_router", "documents_router", "agent_router",
+    "habits_router", "notifications_router"
 ]

@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./uploads"
     MAX_FILE_SIZE_MB: int = 20
 
+    # Gmail Notifications
+    GMAIL_USER: str = ""            # Your Gmail address
+    GMAIL_APP_PASSWORD: str = ""    # Gmail App Password (not your login password)
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

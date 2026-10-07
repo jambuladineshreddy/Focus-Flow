@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, MessageSquare, CheckSquare, Target,
   Calendar, BookOpen, Settings, LogOut, Zap, Menu, X,
-  Flame, Activity, Timer
+  Flame, Bell, Timer
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -15,7 +15,7 @@ const navItems = [
   { to: '/calendar', icon: Calendar, label: 'Calendar' },
   { to: '/habits', icon: Flame, label: 'Habits' },
   { to: '/pomodoro', icon: Timer, label: 'Pomodoro' },
-  { to: '/heatmap', icon: Activity, label: 'Heatmap' },
+  { to: '/notifications', icon: Bell, label: 'Notifications' },
   { to: '/knowledge', icon: BookOpen, label: 'Knowledge' },
 ];
 
