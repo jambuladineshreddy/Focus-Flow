@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { notificationsApi, tasksApi } from '../lib/api';
+import { notificationsApi, tasksApi, Task } from '../lib/api';
 import toast from 'react-hot-toast';
 import {
   Bell, Mail, Send, CheckCircle2, XCircle, Zap,
@@ -224,7 +224,7 @@ export default function NotificationsPage() {
               onChange={e => setSelectedTaskId(e.target.value)}
             >
               <option value="">-- Pick a task --</option>
-              {tasks.map(t => (
+              {tasks.map((t: Task) => (
                 <option key={t.id} value={t.id}>
                   [{t.priority?.toUpperCase()}] {t.title}
                 </option>

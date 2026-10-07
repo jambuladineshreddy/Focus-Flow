@@ -321,7 +321,7 @@ export default function PomodoroPage() {
                 {tasks.length === 0 ? (
                   <p className="text-sm text-slate-400 text-center py-4">No pending tasks</p>
                 ) : (
-                  tasks.slice(0, 8).map(task => (
+                  tasks.slice(0, 8).map((task: Task) => (
                     <button
                       key={task.id}
                       onClick={() => setSelectedTask(task)}
