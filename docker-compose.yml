@@ -1,0 +1,32 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: focusflow
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:password@db:5432/focusflow
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      SECRET_KEY: ${SECRET_KEY}
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/chroma_data:/app/chroma_data
+    depends_on:
+      - db
+    restart: unless-stopped
+
+volumes:
+  pgdata:
