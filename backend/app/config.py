@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     
     # Google Gemini
     GOOGLE_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-3.8-flash"
+    GEMINI_MODEL: str = "gemini-3.5-flash"
     
     # Vector Store (pure-Python JSON files, no ChromaDB required)
     CHROMA_PERSIST_DIR: str = "./vector_store"  # kept name for backwards compat

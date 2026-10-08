@@ -38,6 +38,15 @@ CONFIRMATION_REQUIRED_TOOLS = {
 
 MAX_TOOL_ITERATIONS = 8
 
+# Priority ordered list of fallback models
+MODEL_CANDIDATES = [
+    settings.GEMINI_MODEL,
+    "gemini-3.5-flash",
+    "gemini-3.6-flash",
+    "gemini-3.7-flash",
+    "gemini-3.5-flash-lite",
+]
+
 
 def _build_gemini_tools() -> List[Tool]:
     """Convert our tool definitions to Gemini Tool format."""
@@ -62,6 +71,7 @@ class FocusFlowAgent:
     """
     Single AI agent that orchestrates task, goal, calendar, and RAG operations.
     Uses Gemini with function calling to decide which tools to invoke.
+    Includes multi-model fallback to ensure high availability.
     """
 
     def __init__(self, db: AsyncSession, user: User):
@@ -69,11 +79,21 @@ class FocusFlowAgent:
         self.user = user
         self.tools = AgentTools(db, user.id)
         self.gemini_tools = _build_gemini_tools()
+        self.system_instruction = self._build_system_prompt()
 
-        self.model = genai.GenerativeModel(
-            model_name=settings.GEMINI_MODEL,
+        # Build unique ordered candidate models
+        seen = set()
+        self.available_models = []
+        for m in MODEL_CANDIDATES:
+            if m and m not in seen:
+                seen.add(m)
+                self.available_models.append(m)
+
+    def _get_generative_model(self, model_name: str) -> genai.GenerativeModel:
+        return genai.GenerativeModel(
+            model_name=model_name,
             tools=self.gemini_tools,
-            system_instruction=self._build_system_prompt(),
+            system_instruction=self.system_instruction,
         )
 
     def _build_system_prompt(self) -> str:
@@ -135,75 +155,101 @@ class FocusFlowAgent:
         """
         Process a user message and return:
         - (response_text, sources_used, tools_summary)
+        Tries configured model first, automatically falling back if rate limits or quota exceeded.
         """
-        try:
-            history = self._build_history(conversation_history)
-            chat = self.model.start_chat(history=history)
+        history = self._build_history(conversation_history)
+        last_error = None
 
-            # Initial message to the model
-            response = await chat.send_message_async(user_message)
+        for model_name in self.available_models:
+            try:
+                logger.info(f"Attempting agent chat with model: {model_name}")
+                gen_model = self._get_generative_model(model_name)
+                chat = gen_model.start_chat(history=history)
 
-            tools_used = []
-            sources_used = []
-            iterations = 0
+                # Initial message to the model
+                response = await chat.send_message_async(user_message)
 
-            # Agentic loop: execute tools until model gives a final response
-            while iterations < MAX_TOOL_ITERATIONS:
-                iterations += 1
+                tools_used = []
+                sources_used = []
+                iterations = 0
 
-                # Check if model wants to call tools
-                function_calls = []
-                for part in response.candidates[0].content.parts:
-                    if hasattr(part, "function_call") and part.function_call.name:
-                        function_calls.append(part.function_call)
+                # Agentic loop: execute tools until model gives a final response
+                while iterations < MAX_TOOL_ITERATIONS:
+                    iterations += 1
 
-                if not function_calls:
-                    # No more tool calls — we have the final response
-                    break
+                    # Check if model wants to call tools
+                    function_calls = []
+                    if response.candidates and response.candidates[0].content:
+                        for part in response.candidates[0].content.parts:
+                            try:
+                                if hasattr(part, "function_call") and part.function_call and part.function_call.name:
+                                    function_calls.append(part.function_call)
+                            except Exception:
+                                pass
 
-                # Execute all requested tools
-                tool_results = []
-                for fc in function_calls:
-                    tool_name = fc.name
-                    tool_args = dict(fc.args) if fc.args else {}
-                    tools_used.append(tool_name)
+                    if not function_calls:
+                        # No more tool calls — we have the final response
+                        break
 
-                    result_json = await self._execute_tool(tool_name, tool_args)
-                    result_data = json.loads(result_json)
+                    # Execute all requested tools
+                    tool_parts = []
+                    for fc in function_calls:
+                        tool_name = fc.name
+                        tool_args = dict(fc.args) if fc.args else {}
+                        tools_used.append(tool_name)
 
-                    # Collect sources from RAG
-                    if tool_name == "search_knowledge_base" and result_data.get("sources"):
-                        sources_used.extend(result_data["sources"])
+                        result_json = await self._execute_tool(tool_name, tool_args)
+                        result_data = json.loads(result_json)
 
-                    tool_results.append({
-                        "function_response": {
-                            "name": tool_name,
-                            "response": result_data,
-                        }
-                    })
+                        # Collect sources from RAG
+                        if tool_name == "search_knowledge_base" and result_data.get("sources"):
+                            sources_used.extend(result_data["sources"])
 
-                # Send tool results back to model
-                response = await chat.send_message_async(tool_results)
+                        # Pass valid protobuf FunctionResponse part back to Gemini
+                        tool_parts.append(
+                            genai.protos.Part(
+                                function_response=genai.protos.FunctionResponse(
+                                    name=tool_name,
+                                    response={"result": result_data},
+                                )
+                            )
+                        )
 
-            # Extract final text response
-            final_text = ""
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, "text") and part.text:
-                    final_text += part.text
+                    # Send tool results back to model
+                    response = await chat.send_message_async(tool_parts)
 
-            if not final_text:
-                final_text = "I've completed the requested actions. Is there anything else you need?"
+                # Extract final text response
+                final_text = ""
+                if response.candidates and response.candidates[0].content:
+                    for part in response.candidates[0].content.parts:
+                        try:
+                            if hasattr(part, "text") and part.text:
+                                final_text += part.text
+                        except Exception:
+                            pass
 
-            tools_summary = json.dumps(list(set(tools_used))) if tools_used else None
-            unique_sources = list(set(sources_used))
+                if not final_text:
+                    final_text = "I've completed the requested actions. Is there anything else you need?"
 
-            return final_text, unique_sources, tools_summary
+                tools_summary = json.dumps(list(set(tools_used))) if tools_used else None
+                unique_sources = list(set(sources_used))
 
-        except Exception as e:
-            logger.error(f"Agent error: {e}", exc_info=True)
-            return (
-                "I encountered an issue processing your request. Please try again. "
-                "If the problem persists, check that your API key is configured correctly.",
-                [],
-                None,
-            )
+                return final_text, unique_sources, tools_summary
+
+            except Exception as e:
+                err_msg = str(e)
+                logger.warning(f"Agent model {model_name} failed: {err_msg}")
+                last_error = e
+                # If error is quota or model not found, continue to next fallback model
+                if "429" in err_msg or "ResourceExhausted" in err_msg or "404" in err_msg or "not found" in err_msg:
+                    continue
+                # For other errors, also try next model once
+                continue
+
+        logger.error(f"All agent models failed. Last error: {last_error}", exc_info=True)
+        return (
+            "I encountered an issue processing your request. Please try again. "
+            "If the problem persists, check that your API key is configured correctly.",
+            [],
+            None,
+        )

@@ -101,10 +101,36 @@ export const dashboardApi = {
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 
+export interface NotificationSettingsData {
+  account_email: string;
+  notification_email: string;
+  smtp_email: string;
+  has_smtp_password: boolean;
+  sender_mode: 'user' | 'system' | 'none';
+  is_ready_to_send: boolean;
+  system_configured: boolean;
+  system_email: string | null;
+  daily_digest_enabled: boolean;
+  task_reminders_enabled: boolean;
+  goal_alerts_enabled: boolean;
+}
+
 export const notificationsApi = {
-  getStatus: () => api.get<{ gmail_configured: boolean; gmail_user: string | null }>('/notifications/status'),
-  sendTest: (email: string) => api.post('/notifications/test', { email }),
-  sendDailyDigest: (email: string) => api.post('/notifications/daily-digest', { email }),
+  getStatus: () =>
+    api.get<{
+      gmail_configured: boolean;
+      gmail_user: string | null;
+      sender_mode: string;
+      notification_email: string;
+      account_email: string;
+    }>('/notifications/status'),
+  getSettings: () => api.get<NotificationSettingsData>('/notifications/settings'),
+  updateSettings: (data: Partial<NotificationSettingsData> & { smtp_password?: string }) =>
+    api.put('/notifications/settings', data),
+  verifySmtp: (data: { smtp_email?: string; smtp_password?: string }) =>
+    api.post<{ success: boolean; message: string }>('/notifications/verify-smtp', data),
+  sendTest: (email?: string) => api.post('/notifications/test', { email }),
+  sendDailyDigest: (email?: string) => api.post('/notifications/daily-digest', { email }),
   sendTaskReminder: (email: string, task_id: string) =>
     api.post('/notifications/remind-task', { email, task_id }),
 };
@@ -120,6 +146,8 @@ export interface User {
   timezone: string;
   working_hours_start: number;
   working_hours_end: number;
+  notification_email?: string;
+  smtp_email?: string;
   created_at: string;
 }
 

@@ -28,6 +28,8 @@ class UserResponse(BaseModel):
     timezone: str
     working_hours_start: int
     working_hours_end: int
+    notification_email: Optional[str] = None
+    smtp_email: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -39,6 +41,8 @@ class UserUpdateRequest(BaseModel):
     working_hours_start: Optional[int] = None
     working_hours_end: Optional[int] = None
     avatar_color: Optional[str] = None
+    notification_email: Optional[str] = None
+    smtp_email: Optional[str] = None
 
 
 # ─── Task Schemas ─────────────────────────────────────────────────────────────

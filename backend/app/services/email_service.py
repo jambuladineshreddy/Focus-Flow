@@ -1,30 +1,95 @@
 """
 Gmail Email Service using Python's built-in smtplib (no extra packages needed).
-Sends task reminders, daily digests, and goal alerts via Gmail SMTP.
+Supports per-user Gmail SMTP authentication + system-wide fallback SMTP.
+Sends task reminders, daily digests, test emails, and goal alerts.
 """
 import smtplib
 import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, date
-from typing import List, Optional
+from typing import List, Optional, Tuple, Any
 
 from ..config import settings
+from ..models.models import User
 
 logger = logging.getLogger(__name__)
 
 
-def _send_email(to_email: str, subject: str, html_body: str) -> bool:
-    """Core email sender using Gmail SMTP with App Password."""
-    if not settings.GMAIL_USER or not settings.GMAIL_APP_PASSWORD:
-        logger.warning("Gmail credentials not configured — email not sent.")
-        return False
+def verify_smtp_credentials(smtp_user: str, smtp_password: str) -> Tuple[bool, str]:
+    """
+    Test Gmail SMTP credentials directly without sending an email.
+    Returns (True, "Connection successful") or (False, "Error message").
+    """
+    if not smtp_user or not smtp_password:
+        return False, "Gmail username and App Password are required."
+
+    clean_user = smtp_user.strip()
+    clean_pw = smtp_password.strip().replace(" ", "")
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(clean_user, clean_pw)
+        return True, f"Authentication successful for {clean_user}!"
+    except smtplib.SMTPAuthenticationError:
+        return False, (
+            "Gmail authentication failed. Please make sure 2-Step Verification is enabled "
+            "on your Google account and you are using a 16-character App Password (not your normal password)."
+        )
+    except smtplib.SMTPConnectError as e:
+        return False, f"Could not connect to Gmail SMTP server: {str(e)}"
+    except Exception as e:
+        return False, f"SMTP verification error: {str(e)}"
+
+
+def get_smtp_sender(user: Optional[User] = None) -> Tuple[Optional[str], Optional[str], str]:
+    """
+    Resolves which SMTP sender credentials to use.
+    Priority 1: User's personal credentials (smtp_email, smtp_password).
+    Priority 2: System-wide credentials (settings.GMAIL_USER, settings.GMAIL_APP_PASSWORD).
+    Returns (sender_email, sender_password, mode: "user" | "system" | "none").
+    """
+    if user and user.smtp_email and user.smtp_password:
+        return user.smtp_email.strip(), user.smtp_password.strip().replace(" ", ""), "user"
+
+    if settings.GMAIL_USER and settings.GMAIL_APP_PASSWORD:
+        return settings.GMAIL_USER.strip(), settings.GMAIL_APP_PASSWORD.strip().replace(" ", ""), "system"
+
+    return None, None, "none"
+
+
+def send_email(
+    to_email: str,
+    subject: str,
+    html_body: str,
+    user: Optional[User] = None,
+) -> Tuple[bool, str]:
+    """
+    Core email sender using Gmail SMTP with per-user or system App Password.
+    Returns (True, "Success message") or (False, "Error details").
+    """
+    sender_email, sender_password, mode = get_smtp_sender(user)
+
+    if not sender_email or not sender_password:
+        msg = (
+            "Gmail credentials not configured. Please add your Gmail address and 16-character "
+            "App Password in Notification Settings, or configure server GMAIL_USER in .env."
+        )
+        logger.warning(msg)
+        return False, msg
+
+    target_email = to_email.strip() if to_email else None
+    if not target_email and user:
+        target_email = (user.notification_email or user.email or "").strip()
+
+    if not target_email:
+        return False, "No recipient email address specified."
 
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = f"FocusFlow AI <{settings.GMAIL_USER}>"
-        msg["To"] = to_email
+        msg["From"] = f"FocusFlow AI <{sender_email}>"
+        msg["To"] = target_email
 
         # Plain-text fallback
         plain = html_body.replace("<br>", "\n").replace("</p>", "\n").replace("<li>", "• ")
@@ -33,25 +98,34 @@ def _send_email(to_email: str, subject: str, html_body: str) -> bool:
         msg.attach(MIMEText(plain, "plain"))
         msg.attach(MIMEText(html_body, "html"))
 
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(settings.GMAIL_USER, settings.GMAIL_APP_PASSWORD)
-            server.sendmail(settings.GMAIL_USER, to_email, msg.as_string())
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=12) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, target_email, msg.as_string())
 
-        logger.info(f"Email sent to {to_email}: {subject}")
-        return True
+        success_msg = f"Email sent to {target_email} from {sender_email} ({mode} credentials)"
+        logger.info(success_msg)
+        return True, success_msg
 
     except smtplib.SMTPAuthenticationError:
-        logger.error("Gmail auth failed — check GMAIL_USER and GMAIL_APP_PASSWORD in .env")
-        return False
+        err = (
+            f"Gmail authentication failed for {sender_email}. "
+            "Verify your 16-character Google App Password in settings."
+        )
+        logger.error(err)
+        return False, err
+    except smtplib.SMTPConnectError as e:
+        err = f"Failed to connect to Gmail SMTP server: {str(e)}"
+        logger.error(err)
+        return False, err
     except Exception as e:
-        logger.error(f"Email send error: {e}")
-        return False
+        err = f"Email sending failed: {str(e)}"
+        logger.error(err)
+        return False, err
 
 
 def _base_template(title: str, content: str) -> str:
     """Returns a styled HTML email template."""
-    return f"""
-<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -103,7 +177,7 @@ def _base_template(title: str, content: str) -> str:
     </div>
     <div class="footer">
       You're receiving this because you have email notifications enabled in FocusFlow AI.<br>
-      Manage your notification settings in the app.
+      Manage your notification settings anytime in the app.
     </div>
   </div>
 </body>
@@ -111,26 +185,36 @@ def _base_template(title: str, content: str) -> str:
 """
 
 
-def send_test_email(to_email: str, user_name: str) -> bool:
+def send_test_email(to_email: str, user_name: str, user: Optional[User] = None) -> Tuple[bool, str]:
     content = f"""
     <p>Hey <strong>{user_name}</strong> 👋</p>
-    <p>Your Gmail notifications are working perfectly with FocusFlow AI!</p>
+    <p>Your Gmail notifications are configured and working smoothly with FocusFlow AI!</p>
     <div class="card">
-      <p style="margin:0;font-weight:600;color:#6366f1;">✅ Connection successful</p>
+      <p style="margin:0;font-weight:600;color:#6366f1;">✅ Connection Verified</p>
       <p style="margin:4px 0 0;font-size:13px;color:#64748b;">
-        You'll now receive task reminders, daily digests, and goal alerts right in your inbox.
+        You'll receive personalized task reminders, morning daily digests, and goal alerts right to this inbox.
       </p>
     </div>
     <a href="http://localhost:5173" class="btn">Open FocusFlow →</a>
     """
-    return _send_email(to_email, "✅ FocusFlow AI — Notifications Connected!", _base_template("Test Email", content))
+    return send_email(
+        to_email=to_email,
+        subject="✅ FocusFlow AI — Email Notifications Connected!",
+        html_body=_base_template("Test Email", content),
+        user=user,
+    )
 
 
-def send_daily_digest(to_email: str, user_name: str, tasks: list, goals: list) -> bool:
+def send_daily_digest(
+    to_email: str,
+    user_name: str,
+    tasks: list,
+    goals: list,
+    user: Optional[User] = None,
+) -> Tuple[bool, str]:
     today = date.today().strftime("%A, %B %d")
     overdue = [t for t in tasks if t.get("is_overdue")]
     due_today = [t for t in tasks if t.get("due_today")]
-    high_priority = [t for t in tasks if t.get("priority") == "high" and t.get("status") != "completed"]
 
     def task_row(t: dict) -> str:
         p = t.get("priority", "medium")
@@ -178,10 +262,20 @@ def send_daily_digest(to_email: str, user_name: str, tasks: list, goals: list) -
 
     <a href="http://localhost:5173/tasks" class="btn">View All Tasks →</a>
     """
-    return _send_email(to_email, f"📅 FocusFlow Daily Digest — {today}", _base_template("Your Daily Digest", content))
+    return send_email(
+        to_email=to_email,
+        subject=f"📅 FocusFlow Daily Digest — {today}",
+        html_body=_base_template("Your Daily Digest", content),
+        user=user,
+    )
 
 
-def send_task_reminder(to_email: str, user_name: str, task: dict) -> bool:
+def send_task_reminder(
+    to_email: str,
+    user_name: str,
+    task: dict,
+    user: Optional[User] = None,
+) -> Tuple[bool, str]:
     priority = task.get("priority", "medium")
     due_label = task.get("due_label", "soon")
     content = f"""
@@ -196,10 +290,21 @@ def send_task_reminder(to_email: str, user_name: str, task: dict) -> bool:
     </div>
     <a href="http://localhost:5173/tasks" class="btn">Complete Task →</a>
     """
-    return _send_email(to_email, f"⏰ Reminder: {task['title']}", _base_template("Task Reminder", content))
+    return send_email(
+        to_email=to_email,
+        subject=f"⏰ Reminder: {task['title']}",
+        html_body=_base_template("Task Reminder", content),
+        user=user,
+    )
 
 
-def send_goal_alert(to_email: str, user_name: str, goal: dict, alert_type: str) -> bool:
+def send_goal_alert(
+    to_email: str,
+    user_name: str,
+    goal: dict,
+    alert_type: str,
+    user: Optional[User] = None,
+) -> Tuple[bool, str]:
     if alert_type == "completed":
         title = "🏆 Goal Completed!"
         msg = f"<p>Congratulations <strong>{user_name}</strong>! You've completed your goal:</p>"
@@ -221,4 +326,9 @@ def send_goal_alert(to_email: str, user_name: str, goal: dict, alert_type: str) 
     </div>
     <a href="http://localhost:5173/goals" class="btn">View Goals →</a>
     """
-    return _send_email(to_email, f"{title} — {goal['title']}", _base_template(title, content))
+    return send_email(
+        to_email=to_email,
+        subject=f"{title} — {goal['title']}",
+        html_body=_base_template(title, content),
+        user=user,
+    )

@@ -20,43 +20,53 @@ logger = logging.getLogger(__name__)
 VECTOR_STORE_DIR = Path(settings.CHROMA_PERSIST_DIR)  # reuse config path
 VECTOR_STORE_DIR.mkdir(parents=True, exist_ok=True)
 
-EMBEDDING_MODEL = "models/text-embedding-004"
+EMBEDDING_MODELS = ["models/gemini-embedding-001", "models/gemini-embedding-2"]
 
 
 # ─── Gemini Embedding ─────────────────────────────────────────────────────────
 
 def _get_embedding(text: str) -> Optional[List[float]]:
-    """Get a text embedding from Gemini."""
-    try:
-        import google.generativeai as genai
-        from ..config import settings as app_settings
-        genai.configure(api_key=app_settings.GOOGLE_API_KEY)
-        result = genai.embed_content(
-            model=EMBEDDING_MODEL,
-            content=text,
-            task_type="retrieval_document",
-        )
-        return result["embedding"]
-    except Exception as e:
-        logger.error(f"Embedding error: {e}")
-        return None
+    """Get a text embedding from Gemini with model fallback."""
+    import google.generativeai as genai
+    from ..config import settings as app_settings
+    genai.configure(api_key=app_settings.GOOGLE_API_KEY)
+
+    for model_name in EMBEDDING_MODELS:
+        try:
+            result = genai.embed_content(
+                model=model_name,
+                content=text,
+                task_type="retrieval_document",
+            )
+            return result["embedding"]
+        except Exception as e:
+            logger.warning(f"Embedding attempt with {model_name} failed: {e}")
+            continue
+
+    logger.error("All embedding attempts failed.")
+    return None
 
 
 def _get_query_embedding(text: str) -> Optional[List[float]]:
-    """Get a query embedding (different task_type for better retrieval)."""
-    try:
-        import google.generativeai as genai
-        from ..config import settings as app_settings
-        genai.configure(api_key=app_settings.GOOGLE_API_KEY)
-        result = genai.embed_content(
-            model=EMBEDDING_MODEL,
-            content=text,
-            task_type="retrieval_query",
-        )
-        return result["embedding"]
-    except Exception as e:
-        logger.error(f"Query embedding error: {e}")
-        return None
+    """Get a query embedding (different task_type for better retrieval) with model fallback."""
+    import google.generativeai as genai
+    from ..config import settings as app_settings
+    genai.configure(api_key=app_settings.GOOGLE_API_KEY)
+
+    for model_name in EMBEDDING_MODELS:
+        try:
+            result = genai.embed_content(
+                model=model_name,
+                content=text,
+                task_type="retrieval_query",
+            )
+            return result["embedding"]
+        except Exception as e:
+            logger.warning(f"Query embedding attempt with {model_name} failed: {e}")
+            continue
+
+    logger.error("All query embedding attempts failed.")
+    return None
 
 
 def _cosine_similarity(a: List[float], b: List[float]) -> float:

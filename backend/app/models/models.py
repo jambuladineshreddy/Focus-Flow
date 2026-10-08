@@ -49,6 +49,13 @@ class User(Base):
     timezone = Column(String(50), default="UTC")
     working_hours_start = Column(Integer, default=9)   # 9 AM
     working_hours_end = Column(Integer, default=18)    # 6 PM
+    notification_email = Column(String(255), nullable=True)
+    smtp_email = Column(String(255), nullable=True)
+    smtp_password = Column(String(255), nullable=True)
+    email_notifications_enabled = Column(Boolean, default=True)
+    daily_digest_enabled = Column(Boolean, default=True)
+    task_reminders_enabled = Column(Boolean, default=True)
+    goal_alerts_enabled = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
